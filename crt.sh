@@ -1,38 +1,56 @@
 #!/bin/bash
 #
-# Author: Tyler Wrightson
-# Date: 8/22/2017
+# SubDOMAIN enumeration by CRT.sh
+# Author: Dr. V4vr1n3c - 2019
+#
 
-TARGET="$1"
-DIR="$PWD/crt"
 
-if [ -z $TARGET ]; then
-	echo -e "Usage: crt.sh <keyword>"
-	echo -e "<keyword> should be clients name"
-	exit
+#Variables
+DOMAIN="$1"
+DIR="$PWD/$1"
+TMPFILE="/tmp/$(basename $0).$DOMAIN.$$.tmp"
+TMPFILERESULTS="/tmp/$(basename $0).$DOMAIN.results.$$.tmp"
+USERAGENT="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_5_2; en-us) AppleWebKit/525.7 (KHTML, like Gecko) Version/3.1 Safari/525.7"
+
+[ -z "$DOMAIN" ] && echo "usage: $0 <DOMAIN>" && exit 1
+
+echoerr(){ echo "$@" 1>&2; }
+
+#Sanitize the DOMAIN, for a regex grep search
+REGEXDOMAIN="${DOMAIN/\./\\.}"
+
+echo -e "[+] Retrieving DOMAIN infomation from crt.sh"
+echo -e ""
+
+#Download the crt.sh DOMAIN information
+#todo detect if show-progress is supported
+wget  -A "*?id*" -I / -L -N -r -l1 -qO "$TMPFILE" -e robots=off -U "$USERAGENT" --no-remove-listing "https://crt.sh/?q=%25$DOMAIN" --show-progress
+
+#Extract altnames
+grep -P -o 'DNS:.*?<BR>' "$TMPFILE" | tr -d "DNS:" | tr -d "<BR>" >> $TMPFILERESULTS
+
+#Extract subDOMAINs identified.
+grep -o "[a-zA-Z0-9.-]*$REGEXDOMAIN" "$TMPFILE" >> $TMPFILERESULTS
+
+
+echo -e "[+]##########################################[+]"
+echo -e "[+]SUBDOMAINS FOUND[+]"
+echo -e "[+][+]"
+#Make results lower case, then eliminate duplicates
+cat $TMPFILERESULTS | tr A-Z a-z | sort -u | uniq 
+echo -e "[+]##########################################[+]"
+echo -e "[+][+]"
+echo -e " "
+echo -e "[+] Making directory $DIR"
+
+#Create directory + DOMAIN.txt
+if [ ! -z "$DIR" ]; then 
+    mkdir $DIR  
+    cd $DIR
+    cat $TMPFILERESULTS | sort | uniq   >> DOMAINS.txt 
 fi
 
-echo -e "[+] Making directory $DIR"
-mkdir $DIR
-echo -e "[+] Downloading from https://crt.sh"
-TARGET=${TARGET// /+}
-echo -e "[+] url: https://crt.sh/?q=$TARGET"
-curl -s https://crt.sh/?q=$TARGET > $DIR/curl.txt
-echo -e "[+] Saving Certificate IDs to $DIR/crt.ids"
-cat $DIR/curl.txt | grep ?id= | cut -d \" -f5 | cut -d '<' -f1 | cut -d '>' -f2 >> $DIR/crt.ids
-
-TOTAL=`wc -l $DIR/crt.ids`
-echo -e "[+] Total Number of Certs: $TOTAL"
-cat $DIR/crt.ids| while read line
-do
-   echo "[+] Downloading Certificate ID: $line"
-   curl -s https://crt.sh/?id=$line > $DIR/$line.txt 
-done
-
-# Note that the (.*?) makes the search 'ungreedy' - which matches
-# only the first occurence of the <BR> right after our search string
-cat $DIR/* | grep -oP '(DNS)(.*?)(<BR>)' | cut -d ":" -f2 | cut -d "<" -f1 | sort -u >> $DIR/domains.txt
-
-echo -e "[+] Domains saved to: $DIR/domains.txt"
-echo -e "[+] Done"
+#Exclude temp file
+rm "$TMPFILE"
+rm $TMPFILERESULTS 
 
